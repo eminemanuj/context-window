@@ -90,6 +90,8 @@ def run_pipeline():
 
         result = write_report(findings, previous_context=previous_context)
         st.write(f"Guardrail check: {'✅ Passed' if result['validation']['passed'] else '⚠️ Flagged'}")
+        if result.get("used_fallback"):
+            st.warning(f"⚠️ Groq API unavailable after retries ({result.get('error')}) — showing raw findings as fallback.")
         if not result["validation"]["passed"]:
             st.warning(f"Suspicious numbers: {result['validation']['suspicious_numbers']}")
 
@@ -139,8 +141,11 @@ if "report" in st.session_state:
                     st.session_state["report"],
                 )
             st.markdown(f"**Answer:** {qa_result['answer']}")
-            if qa_result["used_history"]:
-                st.caption("🧠 This answer used past reports from memory.")
+            if qa_result.get("used_fallback"):
+                st.warning("⚠️ AI service was unavailable for this question.")
+            if qa_result["used_history"] and qa_result.get("history_sources"):
+                sources_str = ", ".join(s["run_id"] for s in qa_result["history_sources"])
+                st.caption(f"🧠 Sourced from memory: {sources_str}")
             if not qa_result["validation"]["passed"]:
                 st.warning(f"Guardrail flagged possible unsupported numbers: {qa_result['validation']['suspicious_numbers']}")
         else:

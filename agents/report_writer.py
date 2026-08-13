@@ -11,18 +11,25 @@ the findings list. We enforce this two ways:
        the report against numbers in the findings — flagging anything
        that doesn't match (a simple hallucination check).
 
+RELIABILITY: Groq calls use retry with backoff. If all retries fail, we
+return a fallback report built from raw findings rather than crashing —
+"fail loudly, don't guess quietly."
+
 Owner: [assign teammate name here]
 """
 
 import os
 import re
 import json
-from groq import Groq
+import time
+from groq import Groq, APIError, APIConnectionError, RateLimitError
 from dotenv import load_dotenv
 
 load_dotenv()
 
 MODEL = "llama-3.3-70b-versatile"  # good balance of quality/speed on Groq
+MAX_RETRIES = 3
+RETRY_DELAY_SECONDS = 2
 
 
 def build_prompt(findings: list[dict], previous_context: str = None) -> str:
@@ -64,6 +71,59 @@ FINDINGS:
 Write the report now.
 """
     return prompt
+
+
+def build_fallback_report(findings: list[dict], error_reason: str) -> str:
+    """
+    If Groq is unavailable, we still hand back something useful instead of
+    crashing — a plain listing of the raw findings. This is the "fail
+    loudly, don't guess quietly" principle: we clearly say the AI writer
+    is down, rather than silently returning nothing or a fake report.
+    """
+    lines = [
+        "## Weekly Business Report (Fallback Mode)",
+        "",
+        f"**Note:** The AI report writer is temporarily unavailable ({error_reason}). "
+        "Showing raw findings instead so nothing is lost.",
+        "",
+        "### Raw Findings",
+    ]
+    if not findings:
+        lines.append("No significant findings this period.")
+    else:
+        for f in findings:
+            lines.append(f"- **{f['metric']}**: {f['finding']} ({f['magnitude']}, confidence: {f['confidence']})")
+    return "\n".join(lines)
+
+
+def call_groq_with_retry(client: Groq, prompt: str) -> tuple[str | None, str | None]:
+    """
+    Calls Groq with retry + exponential backoff. Returns (response_text, error_message).
+    If it succeeds, error_message is None. If all retries fail, response_text is None.
+    """
+    last_error = None
+    for attempt in range(1, MAX_RETRIES + 1):
+        try:
+            response = client.chat.completions.create(
+                model=MODEL,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.3,
+                max_tokens=800,
+            )
+            return response.choices[0].message.content, None
+        except RateLimitError as e:
+            last_error = f"rate limited ({e})"
+        except APIConnectionError as e:
+            last_error = f"connection error ({e})"
+        except APIError as e:
+            last_error = f"API error ({e})"
+        except Exception as e:
+            last_error = f"unexpected error ({e})"
+
+        if attempt < MAX_RETRIES:
+            time.sleep(RETRY_DELAY_SECONDS * attempt)  # simple exponential backoff
+
+    return None, last_error
 
 
 def extract_numbers(text: str, exclude_dates: bool = True) -> set[str]:
@@ -115,10 +175,17 @@ def write_report(findings: list[dict], previous_context: str = None) -> dict:
     """
     Main entry point. Calls Groq to generate the report, then validates it.
 
+    Args:
+        findings: structured facts from the Insight Analyser
+        previous_context: optional text of last week's report, for
+            week-over-week comparison (pulled from ChromaDB memory)
+
     Returns:
         {
-            "report": str,          # the generated report text
-            "validation": dict,     # guardrail check result
+            "report": str,
+            "validation": dict,
+            "used_fallback": bool,   # True if Groq failed and we fell back
+            "error": str | None,
         }
     """
     api_key = os.getenv("GROQ_API_KEY")
@@ -139,21 +206,26 @@ def write_report(findings: list[dict], previous_context: str = None) -> dict:
             "No significant changes or anomalies were detected this period. "
             "All metrics remained within normal historical ranges.\n"
         )
-        return {"report": report_text, "validation": {"passed": True, "suspicious_numbers": []}}
+        return {"report": report_text, "validation": {"passed": True, "suspicious_numbers": []}, "used_fallback": False, "error": None}
 
     prompt = build_prompt(findings, previous_context=previous_context)
 
-    response = client.chat.completions.create(
-        model=MODEL,
-        messages=[{"role": "user", "content": prompt}],
-        temperature=0.3,  # lower temperature = more factual, less creative drift
-        max_tokens=800,
-    )
+    report_text, error = call_groq_with_retry(client, prompt)
 
-    report_text = response.choices[0].message.content
+    if report_text is None:
+        # All retries failed — fail loudly with a usable fallback, not a crash
+        # and not a silent wrong answer.
+        fallback = build_fallback_report(findings, error)
+        return {
+            "report": fallback,
+            "validation": {"passed": True, "suspicious_numbers": []},
+            "used_fallback": True,
+            "error": error,
+        }
+
     validation = validate_report(report_text, findings)
 
-    return {"report": report_text, "validation": validation}
+    return {"report": report_text, "validation": validation, "used_fallback": False, "error": None}
 
 
 if __name__ == "__main__":

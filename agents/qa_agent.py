@@ -10,14 +10,19 @@ hallucination check on its answer afterward.
 
 Also memory-aware: if the question seems to reference history ("compared
 to last week", "has this happened before"), it pulls relevant past
-reports from ChromaDB to ground the answer.
+reports from ChromaDB to ground the answer — and cites the specific
+source (run_id + date) it used, not just "memory" vaguely.
+
+RELIABILITY: Groq calls use retry with backoff, and fail loudly with a
+clear message rather than crashing if the service is unavailable.
 
 Owner: [assign teammate name here]
 """
 
 import os
 import json
-from groq import Groq
+import time
+from groq import Groq, APIError, APIConnectionError, RateLimitError
 from dotenv import load_dotenv
 
 from agents.report_writer import validate_report
@@ -26,6 +31,8 @@ from memory.memory_store import find_similar_reports, get_most_recent_report
 load_dotenv()
 
 MODEL = "llama-3.3-70b-versatile"
+MAX_RETRIES = 3
+RETRY_DELAY_SECONDS = 2
 
 HISTORY_KEYWORDS = ["last week", "before", "previous", "compared", "history", "past", "again", "trend over time"]
 
@@ -41,7 +48,8 @@ def build_qa_prompt(question: str, findings: list[dict], report_text: str, histo
     history_block = ""
     if history_context:
         history_block = f"""
-RELEVANT PAST REPORTS (for historical context only):
+RELEVANT PAST REPORTS (for historical context only — each is tagged with a
+Source ID and date; cite the Source ID if you reference it):
 ---
 {history_context}
 ---
@@ -80,8 +88,10 @@ def answer_question(question: str, findings: list[dict], report_text: str) -> di
     Returns:
         {
             "answer": str,
-            "validation": dict,       # same guardrail check as Report Writer
+            "validation": dict,          # same guardrail check as Report Writer
             "used_history": bool,
+            "history_sources": list,     # [{run_id, run_date}, ...] actually cited
+            "used_fallback": bool,       # True if Groq failed and we returned an error message
         }
     """
     api_key = os.getenv("GROQ_API_KEY")
@@ -94,25 +104,58 @@ def answer_question(question: str, findings: list[dict], report_text: str) -> di
     client = Groq(api_key=api_key)
 
     history_context = None
+    history_sources = []
     used_history = False
     if _needs_history(question):
         similar = find_similar_reports(question, n_results=2)
         if similar:
+            # Keep explicit source citations (run_id + date) rather than just
+            # dumping report text — lets us tell the user exactly which past
+            # report(s) informed the answer.
             history_context = "\n\n".join(
-                f"[{r['run_date']}]: {r['report']}" for r in similar
+                f"[Source: {r['run_id']}, dated {r['run_date']}]: {r['report']}" for r in similar
             )
+            history_sources = [{"run_id": r["run_id"], "run_date": r["run_date"]} for r in similar]
             used_history = True
 
     prompt = build_qa_prompt(question, findings, report_text, history_context)
 
-    response = client.chat.completions.create(
-        model=MODEL,
-        messages=[{"role": "user", "content": prompt}],
-        temperature=0.3,
-        max_tokens=300,
-    )
+    answer_text = None
+    error = None
+    for attempt in range(1, MAX_RETRIES + 1):
+        try:
+            response = client.chat.completions.create(
+                model=MODEL,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.3,
+                max_tokens=300,
+            )
+            answer_text = response.choices[0].message.content
+            error = None
+            break
+        except RateLimitError as e:
+            error = f"rate limited ({e})"
+        except APIConnectionError as e:
+            error = f"connection error ({e})"
+        except APIError as e:
+            error = f"API error ({e})"
+        except Exception as e:
+            error = f"unexpected error ({e})"
 
-    answer_text = response.choices[0].message.content
+        if attempt < MAX_RETRIES:
+            time.sleep(RETRY_DELAY_SECONDS * attempt)
+
+    if answer_text is None:
+        # Fail loudly, not silently — tell the user the AI answerer is down
+        # rather than crashing or guessing.
+        return {
+            "answer": f"⚠️ Sorry, I can't answer right now — the AI service is unavailable ({error}). "
+                      f"Please try again in a moment.",
+            "validation": {"passed": True, "suspicious_numbers": []},
+            "used_history": used_history,
+            "history_sources": history_sources,
+            "used_fallback": True,
+        }
 
     # Reuse the same hallucination guardrail from the Report Writer
     validation = validate_report(answer_text, findings)
@@ -121,6 +164,8 @@ def answer_question(question: str, findings: list[dict], report_text: str) -> di
         "answer": answer_text,
         "validation": validation,
         "used_history": used_history,
+        "history_sources": history_sources,
+        "used_fallback": False,
     }
 
 
@@ -147,3 +192,5 @@ if __name__ == "__main__":
     print(f"A: {qa_result['answer']}")
     print(f"\nGuardrail passed: {qa_result['validation']['passed']}")
     print(f"Used history: {qa_result['used_history']}")
+    if qa_result["history_sources"]:
+        print(f"Sources cited: {qa_result['history_sources']}")

@@ -5,13 +5,16 @@ Stores every generated report + its findings as embeddings in ChromaDB.
 This is what gives the system real long-term memory instead of forgetting
 everything after each run.
 
-Two things this enables:
+Three things this enables:
     1. get_most_recent_report() — literal "what did we say last time"
        comparison, used to make the new report say things like
        "compared to last week's report..."
     2. find_similar_reports(query) — semantic search across ALL past
        reports, e.g. "find past reports that also mentioned anomalies
        in the food category"
+    3. Metadata filtering (after_date) — constrain semantic search to a
+       recent time window, so stale matches from months ago don't get
+       pulled in just because they're semantically similar.
 
 Owner: [assign teammate name here]
 """
@@ -75,18 +78,37 @@ def get_most_recent_report() -> dict | None:
     }
 
 
-def find_similar_reports(query: str, n_results: int = 3) -> list[dict]:
+def find_similar_reports(query: str, n_results: int = 3, after_date: str = None) -> list[dict]:
     """
     Semantic search across all past reports. Example query:
     "anomalies in the food category" — returns past reports whose
     content is semantically similar, even if the wording differs.
+
+    Args:
+        query: natural language search query
+        n_results: max results to return
+        after_date: optional metadata filter — only return reports with
+            run_date >= this value (e.g. "2026-08-01"). This is the
+            metadata-filtering piece of our RAG pipeline: semantic search
+            alone can surface stale, irrelevant matches from months ago,
+            so callers who only care about recent history can constrain
+            the search window explicitly.
     """
     collection = _get_collection()
     if collection.count() == 0:
         return []
 
     n_results = min(n_results, collection.count())
-    results = collection.query(query_texts=[query], n_results=n_results)
+
+    where_filter = None
+    if after_date:
+        where_filter = {"run_date": {"$gte": after_date}}
+
+    results = collection.query(
+        query_texts=[query],
+        n_results=n_results,
+        where=where_filter,
+    )
 
     similar = []
     for i in range(len(results["ids"][0])):
@@ -131,5 +153,10 @@ if __name__ == "__main__":
 
     print("Semantic search for 'food category anomaly':")
     results = find_similar_reports("food category anomaly", n_results=2)
+    for r in results:
+        print(f"  [{r['run_date']}] (distance={r['distance']:.3f}) {r['report'][:60]}...")
+
+    print("\nSemantic search with metadata filter (after_date='2026-08-01'):")
+    results = find_similar_reports("food category anomaly", n_results=2, after_date="2026-08-01")
     for r in results:
         print(f"  [{r['run_date']}] (distance={r['distance']:.3f}) {r['report'][:60]}...")
