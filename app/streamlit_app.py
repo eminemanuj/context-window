@@ -94,6 +94,9 @@ def run_pipeline():
             st.warning(f"⚠️ Groq API unavailable after retries ({result.get('error')}) — showing raw findings as fallback.")
         if not result["validation"]["passed"]:
             st.warning(f"Suspicious numbers: {result['validation']['suspicious_numbers']}")
+        if result.get("usage"):
+            u = result["usage"]
+            st.caption(f"⏱️ {u['latency_seconds']}s · {u['total_tokens']} tokens ({u['prompt_tokens']} in / {u['completion_tokens']} out)")
 
         save_report(result["report"], findings)
         st.write("Report saved to memory for next run's comparison.")
@@ -143,6 +146,9 @@ if "report" in st.session_state:
             st.markdown(f"**Answer:** {qa_result['answer'].replace('$', chr(92)+'$')}")
             if qa_result.get("used_fallback"):
                 st.warning("⚠️ AI service was unavailable for this question.")
+            if qa_result.get("usage"):
+                u = qa_result["usage"]
+                st.caption(f"⏱️ {u['latency_seconds']}s · {u['total_tokens']} tokens ({u['prompt_tokens']} in / {u['completion_tokens']} out)")
             if qa_result["used_history"] and qa_result.get("history_sources"):
                 sources_str = ", ".join(s["run_id"] for s in qa_result["history_sources"])
                 st.caption(f"🧠 Sourced from memory: {sources_str}")

@@ -91,10 +91,11 @@ def answer_question(question: str, findings: list[dict], report_text: str) -> di
     Returns:
         {
             "answer": str,
-            "validation": dict,          # same guardrail check as Report Writer
+            "validation": dict,
             "used_history": bool,
-            "history_sources": list,     # [{run_id, run_date}, ...] actually cited
-            "used_fallback": bool,       # True if Groq failed and we returned an error message
+            "history_sources": list,
+            "used_fallback": bool,
+            "usage": dict | None,
         }
     """
     api_key = os.getenv("GROQ_API_KEY")
@@ -112,9 +113,6 @@ def answer_question(question: str, findings: list[dict], report_text: str) -> di
     if _needs_history(question):
         similar = find_similar_reports(question, n_results=2)
         if similar:
-            # Keep explicit source citations (run_id + date) rather than just
-            # dumping report text — lets us tell the user exactly which past
-            # report(s) informed the answer.
             history_context = "\n\n".join(
                 f"[Source: {r['run_id']}, dated {r['run_date']}]: {r['report']}" for r in similar
             )
@@ -125,7 +123,9 @@ def answer_question(question: str, findings: list[dict], report_text: str) -> di
 
     answer_text = None
     error = None
+    usage_stats = None
     for attempt in range(1, MAX_RETRIES + 1):
+        start_time = time.time()
         try:
             response = client.chat.completions.create(
                 model=MODEL,
@@ -133,6 +133,14 @@ def answer_question(question: str, findings: list[dict], report_text: str) -> di
                 temperature=0.3,
                 max_tokens=300,
             )
+            latency = time.time() - start_time
+            usage = response.usage
+            usage_stats = {
+                "latency_seconds": round(latency, 2),
+                "prompt_tokens": usage.prompt_tokens if usage else None,
+                "completion_tokens": usage.completion_tokens if usage else None,
+                "total_tokens": usage.total_tokens if usage else None,
+            }
             answer_text = response.choices[0].message.content
             error = None
             break
@@ -149,8 +157,6 @@ def answer_question(question: str, findings: list[dict], report_text: str) -> di
             time.sleep(RETRY_DELAY_SECONDS * attempt)
 
     if answer_text is None:
-        # Fail loudly, not silently — tell the user the AI answerer is down
-        # rather than crashing or guessing.
         return {
             "answer": f"⚠️ Sorry, I can't answer right now — the AI service is unavailable ({error}). "
                       f"Please try again in a moment.",
@@ -158,9 +164,9 @@ def answer_question(question: str, findings: list[dict], report_text: str) -> di
             "used_history": used_history,
             "history_sources": history_sources,
             "used_fallback": True,
+            "usage": None,
         }
 
-    # Reuse the same hallucination guardrail from the Report Writer
     validation = validate_report(answer_text, findings)
 
     return {
@@ -169,6 +175,7 @@ def answer_question(question: str, findings: list[dict], report_text: str) -> di
         "used_history": used_history,
         "history_sources": history_sources,
         "used_fallback": False,
+        "usage": usage_stats,
     }
 
 
@@ -186,12 +193,12 @@ if __name__ == "__main__":
     findings = analyse(clean_df)
     result = write_report(findings)
 
-    test_question = "What will next month's revenue be?"
+    test_question = "Which category should I be most worried about?"
     qa_result = answer_question(test_question, findings, result["report"])
 
     print(f"Q: {test_question}")
     print(f"A: {qa_result['answer']}")
     print(f"\nGuardrail passed: {qa_result['validation']['passed']}")
     print(f"Used history: {qa_result['used_history']}")
-    if qa_result["history_sources"]:
-        print(f"Sources cited: {qa_result['history_sources']}")
+    if qa_result.get("usage"):
+        print(f"Usage: {qa_result['usage']}")
