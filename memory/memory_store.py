@@ -27,6 +27,19 @@ DB_PATH = "memory/chroma_db"
 COLLECTION_NAME = "weekly_reports"
 
 
+def _to_epoch(date_str: str) -> float:
+    """Converts a 'YYYY-MM-DD HH:MM:SS' or 'YYYY-MM-DD' string to a Unix
+    timestamp. ChromaDB's numeric comparison filters ($gte etc.) only work
+    on numbers, not date strings, so we store this alongside the
+    human-readable run_date for filtering purposes."""
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
+        try:
+            return datetime.strptime(date_str, fmt).timestamp()
+        except ValueError:
+            continue
+    raise ValueError(f"Unrecognized date format: {date_str}")
+
+
 def _get_collection():
     client = chromadb.PersistentClient(path=DB_PATH)
     collection = client.get_or_create_collection(name=COLLECTION_NAME)
@@ -46,6 +59,7 @@ def save_report(report_text: str, findings: list[dict], run_date: str = None) ->
         documents=[report_text],
         metadatas=[{
             "run_date": run_date,
+            "run_epoch": _to_epoch(run_date),
             "findings_json": json.dumps(findings),
             "num_findings": len(findings),
         }],
@@ -102,7 +116,7 @@ def find_similar_reports(query: str, n_results: int = 3, after_date: str = None)
 
     where_filter = None
     if after_date:
-        where_filter = {"run_date": {"$gte": after_date}}
+        where_filter = {"run_epoch": {"$gte": _to_epoch(after_date)}}
 
     results = collection.query(
         query_texts=[query],

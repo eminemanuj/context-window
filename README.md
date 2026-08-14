@@ -73,6 +73,23 @@ Seven real bugs were found and fixed during development:
 
 ---
 
+---
+
+## Screenshots
+
+The full pipeline running end-to-end in the Streamlit UI:
+
+| | |
+|---|---|
+| ![Data Fetcher](Screenshots/1.png) | ![Data Fetcher output](Screenshots/2.png) |
+| ![MCP Verify](Screenshots/3.png) | ![MCP Verify output](Screenshots/4.png) |
+| ![Insight Analyser](Screenshots/5.png) | ![Findings table](Screenshots/6.png) |
+| ![Report Writer](Screenshots/7.png) | ![Generated report](Screenshots/8.png) |
+| ![Data quality + guardrail check](Screenshots/9.png) | ![Q&A section](Screenshots/10.png) |
+| ![Q&A answer with source citation](Screenshots/11.png) | ![Full report view](Screenshots/12.png) |
+
+---
+
 ## Eval Suite — 9/9
 
 A synthetic dataset with deliberately planted, known outcomes proves the system behaves correctly:

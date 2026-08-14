@@ -19,6 +19,9 @@ clear message rather than crashing if the service is unavailable.
 Owner: [assign teammate name here]
 """
 
+import sys
+sys.path.insert(0, ".")
+
 import os
 import json
 import time
@@ -170,8 +173,6 @@ def answer_question(question: str, findings: list[dict], report_text: str) -> di
 
 
 if __name__ == "__main__":
-    import sys
-    sys.path.insert(0, ".")
     from agents.data_fetcher import fetch_and_clean
     from agents.insight_analyser import analyse
     from agents.report_writer import write_report
@@ -185,7 +186,7 @@ if __name__ == "__main__":
     findings = analyse(clean_df)
     result = write_report(findings)
 
-    test_question = "Which category should I be most worried about?"
+    test_question = "What will next month's revenue be?"
     qa_result = answer_question(test_question, findings, result["report"])
 
     print(f"Q: {test_question}")

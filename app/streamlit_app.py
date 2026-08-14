@@ -116,7 +116,7 @@ if st.button("▶️ Run Pipeline", type="primary", use_container_width=True):
 if "report" in st.session_state:
     st.divider()
     st.subheader("📄 Final Report")
-    st.markdown(st.session_state["report"])
+    st.markdown(st.session_state["report"].replace("$", "\\$"))
 
     st.divider()
     col1, col2 = st.columns(2)
@@ -140,7 +140,7 @@ if "report" in st.session_state:
                     st.session_state["findings"],
                     st.session_state["report"],
                 )
-            st.markdown(f"**Answer:** {qa_result['answer']}")
+            st.markdown(f"**Answer:** {qa_result['answer'].replace('$', chr(92)+'$')}")
             if qa_result.get("used_fallback"):
                 st.warning("⚠️ AI service was unavailable for this question.")
             if qa_result["used_history"] and qa_result.get("history_sources"):
