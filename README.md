@@ -72,7 +72,60 @@ Seven real bugs were found and fixed during development:
 7. **No error boundaries on external calls** — an early version had no retry/fallback logic around the Groq API or MCP tool calls; a single failed request would crash the entire pipeline. Added retry-with-backoff, a fallback report path, MCP-side error wrapping, and a circuit breaker on repeated tool failures.
 
 ---
+---
 
+## Additional Features (Post-Checklist Improvements)
+
+### Parallel Agent Execution
+The 3 analysis functions (trend detection, category performance, anomaly
+detection) run as a genuine parallel fan-out/fan-in branch in LangGraph,
+not sequentially — since none of them depend on each other, only on the
+same clean dataset. The main pipeline stays sequential elsewhere because
+those stages have real data dependencies (Analyser needs Fetcher's output,
+Writer needs Analyser's output). This is a deliberate "pattern matches the
+use case" decision, not parallelism for its own sake — verified live via
+timestamped logs showing the 3 branches starting in a different order
+each run and finishing independently.
+
+### Monitoring Tab
+Tracks latency and token usage for every report generated, persisted in
+ChromaDB (not just the current browser session) — so cost/performance can
+be reviewed across the system's entire history, not just one sitting.
+
+### Report History Dashboard
+- Revenue trend chart across all generated reports
+- Findings-per-report chart
+- Semantic search box — search past reports by meaning, not exact
+  keywords (the same retrieval used automatically by the Q&A tab,
+  exposed here as a standalone feature)
+- Full expandable archive of every report ever generated
+
+### Export & Share
+- **Download Report** — exports the current report as a `.md` file
+- **Send to Slack** — sends the report via a Slack Incoming Webhook.
+  Requires a `SLACK_WEBHOOK_URL` in `.env` (see Setup below); fails
+  gracefully with a clear error message if not configured, rather than
+  crashing.
+
+### Scheduled Autorun (documented, not built)
+Rather than building a custom scheduler service, this project runs via
+a single command (`python graph.py`), which makes it trivial to schedule
+with standard OS tools:
+
+**Windows (Task Scheduler):**
+```powershell
+schtasks /create /tn "ContextWindowWeekly" /tr "python C:\Projects\context-window\graph.py" /sc weekly /d MON /st 09:00
+```
+
+**Mac/Linux (cron)** — run every Monday at 9am:
+```bash
+0 9 * * 1 cd /path/to/context-window && /path/to/venv/bin/python graph.py
+```
+
+We chose not to build a custom in-app scheduler since standard OS
+scheduling tools already solve this reliably, and adding a second,
+custom scheduling layer would be redundant infrastructure for a
+capstone-scope project.
 ---
 
 ## Screenshots

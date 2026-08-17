@@ -30,8 +30,11 @@ RETRY_DELAY_SECONDS = 2
 
 def build_prompt(findings: list[dict], previous_context: str = None) -> str:
     """Turn the structured findings list into a prompt for the LLM.
-    If previous_context is given (last week's report text), the model is
-    asked to reference it for a "compared to last week" style comparison."""
+    Asks for ONLY a short Summary + Recommendations — the individual
+    findings themselves are rendered as a table in the UI directly from
+    the structured data, not restated in prose by the LLM. This is more
+    reliable (a table can't hallucinate formatting) and makes the report
+    much faster to read."""
     findings_text = json.dumps(findings, indent=2)
 
     comparison_instruction = ""
@@ -50,21 +53,34 @@ comparison brief — one sentence at most. If it's not clearly relevant, skip it
     prompt = f"""You are a business analyst writing a weekly performance report.
 
 Below is a list of findings that were already calculated by a data analysis system.
-Your ONLY job is to turn these facts into a clear, readable report.
+These findings will be shown to the reader separately as a TABLE — you do NOT
+need to restate every individual number in prose.
+
+Your job is to write ONLY two short sections:
+
+**Summary**
+2-3 sentences giving the big-picture takeaway — what matters most this week,
+and why. Reference the standout numbers only if they're the single most
+important thing (e.g. the top category or the biggest anomaly), not every
+finding.
+
+**Recommendations**
+2-3 sentences of practical guidance based on the findings — what should the
+reader actually do or watch given what changed.
 
 STRICT RULES:
-- Only mention numbers, percentages, and categories that appear in the findings below.
+- Only mention numbers/categories that appear in the findings below.
 - Do NOT invent, estimate, or round numbers beyond what's given.
-- Do NOT add findings that aren't in the list.
-- If the findings list is empty, say clearly that no significant changes were found this period.
-- Write in plain, professional English. No bullet-point dumps — write it as a short narrative report.
-- Structure it with these sections: Summary, Key Trends, Anomalies to Watch, Recommendations.
-- Keep it concise — this is a weekly report, not an essay. Aim for 200-350 words.
+- Do NOT list out every finding — that's what the table is for. Focus on
+  the big picture and what to do about it.
+- If the findings list is empty, say clearly that no significant changes
+  were found this period.
+- Keep it SHORT — this is a summary layer on top of a table, not a full report.
 {comparison_instruction}
 FINDINGS:
 {findings_text}
 
-Write the report now.
+Write the Summary and Recommendations now.
 """
     return prompt
 

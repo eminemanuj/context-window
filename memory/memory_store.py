@@ -5,16 +5,17 @@ Stores every generated report + its findings as embeddings in ChromaDB.
 This is what gives the system real long-term memory instead of forgetting
 everything after each run.
 
-Three things this enables:
+Also stores performance stats (latency, tokens, guardrail status) and
+business data (total revenue) alongside each report — this single
+storage layer powers three things:
     1. get_most_recent_report() — literal "what did we say last time"
        comparison, used to make the new report say things like
        "compared to last week's report..."
     2. find_similar_reports(query) — semantic search across ALL past
        reports, e.g. "find past reports that also mentioned anomalies
        in the food category"
-    3. Metadata filtering (after_date) — constrain semantic search to a
-       recent time window, so stale matches from months ago don't get
-       pulled in just because they're semantically similar.
+    3. get_all_reports() — powers the Report History dashboard AND
+       persistent, cross-session monitoring (not just this browser tab)
 
 Owner: [assign teammate name here]
 """
@@ -46,23 +47,53 @@ def _get_collection():
     return collection
 
 
-def save_report(report_text: str, findings: list[dict], run_date: str = None) -> str:
+def save_report(
+    report_text: str,
+    findings: list[dict],
+    run_date: str = None,
+    usage: dict = None,
+    guardrail_passed: bool = None,
+    used_fallback: bool = None,
+    total_revenue: float = None,
+) -> str:
     """
     Saves a generated report + its findings to memory.
+
+    Optional performance/business fields (usage, guardrail_passed,
+    used_fallback, total_revenue) let this same storage layer power BOTH
+    the Report History dashboard AND persistent cross-session monitoring
+    — instead of monitoring only living in-memory for one browser session.
+
+    ChromaDB metadata values must be str/int/float/bool (no None, no
+    nested dicts) — so optional fields are flattened and only included
+    when actually provided.
+
     Returns the run_id used to store it.
     """
     collection = _get_collection()
     run_date = run_date or datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     run_id = f"run_{run_date.replace(' ', '_').replace(':', '-')}"
 
+    metadata = {
+        "run_date": run_date,
+        "run_epoch": _to_epoch(run_date),
+        "findings_json": json.dumps(findings),
+        "num_findings": len(findings),
+    }
+
+    if usage:
+        metadata["latency_seconds"] = usage.get("latency_seconds") or 0.0
+        metadata["total_tokens"] = usage.get("total_tokens") or 0
+    if guardrail_passed is not None:
+        metadata["guardrail_passed"] = guardrail_passed
+    if used_fallback is not None:
+        metadata["used_fallback"] = used_fallback
+    if total_revenue is not None:
+        metadata["total_revenue"] = total_revenue
+
     collection.add(
         documents=[report_text],
-        metadatas=[{
-            "run_date": run_date,
-            "run_epoch": _to_epoch(run_date),
-            "findings_json": json.dumps(findings),
-            "num_findings": len(findings),
-        }],
+        metadatas=[metadata],
         ids=[run_id],
     )
     return run_id
@@ -141,6 +172,42 @@ def memory_stats() -> dict:
     return {"total_reports_stored": collection.count()}
 
 
+def get_all_reports() -> list[dict]:
+    """
+    Returns ALL stored reports, sorted oldest to newest — used to power
+    the "reports over time" dashboard AND persistent monitoring (since
+    performance stats are now stored alongside each report). Each entry
+    includes the report text, date, findings, and — if available —
+    latency/token/guardrail/revenue data from when it was generated.
+    """
+    collection = _get_collection()
+    all_records = collection.get(include=["documents", "metadatas"])
+
+    if not all_records["ids"]:
+        return []
+
+    records = list(zip(all_records["ids"], all_records["documents"], all_records["metadatas"]))
+    records.sort(key=lambda r: r[2]["run_date"])  # oldest first, for a left-to-right timeline
+
+    reports = []
+    for run_id, document, metadata in records:
+        reports.append({
+            "run_id": run_id,
+            "report": document,
+            "run_date": metadata["run_date"],
+            "num_findings": metadata.get("num_findings", 0),
+            "findings": json.loads(metadata["findings_json"]),
+            # Optional fields — will be None for reports saved before this
+            # feature existed, so callers should handle missing gracefully.
+            "latency_seconds": metadata.get("latency_seconds"),
+            "total_tokens": metadata.get("total_tokens"),
+            "guardrail_passed": metadata.get("guardrail_passed"),
+            "used_fallback": metadata.get("used_fallback"),
+            "total_revenue": metadata.get("total_revenue"),
+        })
+    return reports
+
+
 if __name__ == "__main__":
     # Standalone test: save a couple of fake reports, then test retrieval
     print("=== Testing Memory Store ===\n")
@@ -167,10 +234,5 @@ if __name__ == "__main__":
 
     print("Semantic search for 'food category anomaly':")
     results = find_similar_reports("food category anomaly", n_results=2)
-    for r in results:
-        print(f"  [{r['run_date']}] (distance={r['distance']:.3f}) {r['report'][:60]}...")
-
-    print("\nSemantic search with metadata filter (after_date='2026-08-01'):")
-    results = find_similar_reports("food category anomaly", n_results=2, after_date="2026-08-01")
     for r in results:
         print(f"  [{r['run_date']}] (distance={r['distance']:.3f}) {r['report'][:60]}...")

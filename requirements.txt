@@ -5,3 +5,4 @@ chromadb
 groq
 streamlit
 python-dotenv
+requests
