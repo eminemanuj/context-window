@@ -2,7 +2,6 @@
 
 A multi-agent Business Intelligence system that turns raw e-commerce sales data into an automated weekly report — no manual analysis required.
 
-Built solo as a Cohort 2 Capstone Project.
 
 ---
 
@@ -230,8 +229,8 @@ context-window/
 │   └── memory_store.py       # ChromaDB long-term memory, metadata filtering, performance tracking
 ├── integrations/
 │   └── slack_export.py       # Slack webhook export
-├── data/
-│   ├── raw/                  # Source CSVs (not committed)
+├── ├── data/
+│   ├── raw/                  # Source CSVs — download from Kaggle (see Setup step 5)
 │   └── load_to_sqlite.py     # Loads clean data into SQLite
 ├── tests/
 │   └── eval_suite.py         # Synthetic-data eval suite (9/9)
