@@ -248,9 +248,7 @@ context-window/
 Anuj — Data Engineer who loves exploring AI and building automation that cuts down manual, repetitive work. This project turned a task that normally takes an hour of manual spreadsheet analysis into a system that runs in seconds — built solo as a Cohort 2 Capstone Project.
 
 GitHub: [eminemanuj](https://github.com/eminemanuj)
+Linkedin: https://www.linkedin.com/in/anuj-chanderia-jain-444a5b109/
 
 ---
 
-## Demo Day
-
-Built for Cohort 2 Capstone Demo Day.
