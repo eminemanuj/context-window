@@ -24,7 +24,7 @@ Data Fetcher → MCP Verify → [Parallel: Trend | Category | Anomaly Analysis] 
 | **Data Fetcher** (`agents/data_fetcher.py`) | Loads and joins raw CSVs, cleans bad data, validates quality |
 | **MCP Verify** (`mcp_servers/`) | A FastMCP data-quality server — real MCP client/server calls checking nulls, duplicates, freshness. Every tool call is error-wrapped, and the client has a circuit breaker that stops calling further tools after repeated failures |
 | **Insight Analyser** (`agents/insight_analyser.py`) | Finds statistically significant trends, category performance shifts, and anomalies (z-score based). Its 3 analysis functions run as a genuine **parallel fan-out/fan-in branch** in LangGraph, since none of them depend on each other |
-| **Report Writer** (`agents/report_writer.py`) | Generates a short AI-written Summary + Recommendations via Groq (Llama 3.3), with retry logic, a graceful fallback if the API is unavailable, and a hallucination guardrail that verifies every number against source data. The full findings list is rendered as a structured table directly from data — not restated in AI prose |
+| **Report Writer** (`agents/report_writer.py`) | Generates a short AI-written Summary + Recommendations via Groq (openai/gpt-oss-120b), with retry logic, a graceful fallback if the API is unavailable, and a hallucination guardrail that verifies every number against source data. The full findings list is rendered as a structured table directly from data — not restated in AI prose |
 | **Q&A Layer** (`agents/qa_agent.py`) | Answers follow-up questions, grounded in the same findings, memory-aware for historical questions with explicit source citations, same retry/fallback reliability as the Report Writer |
 | **Memory** (`memory/memory_store.py`) | ChromaDB — stores every report (plus its performance stats and total revenue) as an embedding, enabling week-over-week comparison, semantic search, and persistent cross-session monitoring |
 | **Orchestration** (`graph.py`) | LangGraph — wires all agents into one pipeline: sequential where there's a real data dependency, parallel where there isn't |
@@ -35,7 +35,7 @@ Data Fetcher → MCP Verify → [Parallel: Trend | Category | Anomaly Analysis] 
 
 ## Tech Stack
 
-`LangGraph` · `FastMCP` · `ChromaDB` · `Groq (Llama 3.3 70B)` · `SQLite` · `Streamlit` · `pandas` · `requests`
+`LangGraph` · `FastMCP` · `ChromaDB` · `Groq (openai/gpt-oss-120b)` · `SQLite` · `Streamlit` · `pandas` · `requests`
 
 ---
 
@@ -93,18 +93,37 @@ Eleven real bugs were found and fixed during development:
 
 ---
 
+---
+
 ## Screenshots
 
-The full pipeline running end-to-end in the Streamlit UI:
+### Pipeline Tab
 
 | | |
 |---|---|
-| ![Data Fetcher](Screenshots/1.png) | ![Data Fetcher output](Screenshots/2.png) |
-| ![MCP Verify](Screenshots/3.png) | ![MCP Verify output](Screenshots/4.png) |
-| ![Insight Analyser](Screenshots/5.png) | ![Findings table](Screenshots/6.png) |
-| ![Report Writer](Screenshots/7.png) | ![Generated report](Screenshots/8.png) |
-| ![Data quality + guardrail check](Screenshots/9.png) | ![Q&A section](Screenshots/10.png) |
-| ![Q&A answer with source citation](Screenshots/11.png) | ![Full report view](Screenshots/12.png) |
+| ![Before running the pipeline](Screenshots/01-before-running.png) | ![Live pipeline status mid-run](Screenshots/02-mid-run-live-status.png) |
+| *Before running — one click starts the full pipeline* | *Mid-run — each agent's status updates live* |
+| ![AI-written report summary](Screenshots/03-final-report.png) | ![Findings table](Screenshots/04-findings-table.png) |
+| *AI-written Summary + Recommendations* | *Full findings rendered as a structured table, not restated in prose* |
+| ![Data quality and guardrail check](Screenshots/05-data-quality-guardrail.png) | ![Export and share options](Screenshots/06-export-share.png) |
+| *Data quality report + hallucination guardrail check* | *Download as .md or send directly to Slack* |
+| ![Q&A grounded answer](Screenshots/07-qa-question.png) | ![Q&A guardrail refusing to guess](Screenshots/08-qa-guardrail-test.png) |
+| *Follow-up Q&A, grounded in the same findings* | *Guardrail correctly refusing to forecast — data doesn't support it* |
+
+### Monitoring Tab
+
+![Live monitoring dashboard](Screenshots/09-monitoring.png)
+*Latency and token usage tracked across every run, persisted in ChromaDB — not just this session*
+
+### Report History Tab
+
+| | |
+|---|---|
+| ![Revenue trend over time](Screenshots/10-revenue-trend.png) | ![Semantic search across past reports](Screenshots/11-semantic-search.png) |
+| *Total revenue per report, over time* | *Semantic search — finds past reports by meaning, not just keywords* |
+
+![Full report archive](Screenshots/12-report-archive.png)
+*Every report ever generated, fully expandable*
 
 ---
 

@@ -33,7 +33,7 @@ from memory.memory_store import find_similar_reports, get_most_recent_report
 
 load_dotenv()
 
-MODEL = "llama-3.3-70b-versatile"
+MODEL = "openai/gpt-oss-120b"
 MAX_RETRIES = 3
 RETRY_DELAY_SECONDS = 2
 

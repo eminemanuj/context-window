@@ -23,7 +23,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-MODEL = "llama-3.3-70b-versatile"  # good balance of quality/speed on Groq
+MODEL = "openai/gpt-oss-120b"  # good balance of quality/speed on Groq
 MAX_RETRIES = 3
 RETRY_DELAY_SECONDS = 2
 
